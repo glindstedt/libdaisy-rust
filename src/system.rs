@@ -11,6 +11,7 @@ use stm32h7xx_hal::delay::Delay;
 use stm32h7xx_hal::prelude::*;
 use stm32h7xx_hal::rcc;
 use stm32h7xx_hal::sai::*;
+use stm32h7xx_hal::spi;
 use stm32h7xx_hal::stm32;
 use stm32h7xx_hal::stm32::rcc::d2ccip1r::SAI1SEL_A;
 use stm32h7xx_hal::stm32::TIM2;
@@ -21,6 +22,10 @@ use stm32_fmc::devices::as4c16m32msa_6;
 
 use crate::audio;
 use crate::*;
+
+use stm32h7xx_hal::gpio::gpiob::PB4;
+use stm32h7xx_hal::gpio::{Alternate, Output, AF5, PushPull};
+use core::ptr;
 
 const HSE_CLOCK_MHZ: MegaHertz = MegaHertz(16);
 const HCLK_MHZ: MegaHertz = MegaHertz(200);
@@ -87,6 +92,8 @@ pub struct System {
     pub syscfg: stm32::SYSCFG,
     pub adc1: adc::Adc<stm32::ADC1, adc::Disabled>,
     pub adc2: adc::Adc<stm32::ADC2, adc::Disabled>,
+    pub spi1: spi::Spi<stm32::SPI1, spi::Enabled>,
+    pub delay: stm32h7xx_hal::delay::Delay,
     pub timer2: Timer<TIM2>,
     pub sdram: &'static mut [u32],
 }
@@ -281,9 +288,9 @@ impl System {
             Some(gpiod.pd2),
             Some(gpioc.pc12),
             Some(gpiog.pg10),
-            Some(gpiog.pg11),
+            None, //Some(gpiog.pg11),
             Some(gpiob.pb4),
-            Some(gpiob.pb5),
+            None, //Some(gpiob.pb5),
             Some(gpiob.pb8),
             Some(gpiob.pb9),
             Some(gpiob.pb6),
@@ -313,6 +320,20 @@ impl System {
         // core.SCB.clean_invalidate_dcache(&mut core.CPUID);
         // core.SCB.enable_dcache(&mut core.CPUID);
 
+        // SPI1
+        let sck = gpiog.pg11.into_alternate_af5();
+        // let miso = gpiob.pb4.into_alternate_af5();
+        let mosi = gpiob.pb5.into_alternate_af5();
+        // libdaisy uses same pin for SPI1_MISO and OLED_DC
+        // let dc = gpiob.pb4.into_push_pull_output();
+        let spi1: spi::Spi<stm32::SPI1, spi::Enabled> = device.SPI1.spi(
+            (sck, spi::NoMiso, mosi),
+            spi::MODE_0,
+            400.khz(),
+            ccdr.peripheral.SPI1,
+            &ccdr.clocks
+        );
+
         info!("System init done!");
 
         System {
@@ -322,6 +343,8 @@ impl System {
             syscfg: device.SYSCFG,
             adc1,
             adc2,
+            spi1,
+            delay,
             timer2,
             sdram: ram,
         }
