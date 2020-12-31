@@ -6,8 +6,8 @@ use core::{mem, slice};
 use cortex_m::peripheral::DWT;
 use log::info;
 
-use stm32h7xx_hal::adc;
-use stm32h7xx_hal::delay::Delay;
+use stm32h7xx_hal::{adc, delay::DelayFromTimer};
+use stm32h7xx_hal::delay::DelayFromCountDownTimer;
 use stm32h7xx_hal::prelude::*;
 use stm32h7xx_hal::rcc;
 use stm32h7xx_hal::sai::*;
@@ -93,13 +93,12 @@ pub struct System {
     pub adc1: adc::Adc<stm32::ADC1, adc::Disabled>,
     pub adc2: adc::Adc<stm32::ADC2, adc::Disabled>,
     pub spi1: spi::Spi<stm32::SPI1, spi::Enabled>,
-    pub delay: stm32h7xx_hal::delay::Delay,
     pub timer2: Timer<TIM2>,
     pub sdram: &'static mut [u32],
 }
 
 impl System {
-    pub fn init(mut core: cortex_m::Peripherals, device: stm32::Peripherals) -> System {
+    pub fn init(mut core: rtic::Peripherals, device: stm32::Peripherals) -> System {
         // let mut core = device::CorePeripherals::take().unwrap();
         info!("Starting system init");
         // Power
@@ -129,23 +128,7 @@ impl System {
             .pll3_r_ck(PLL3_R_HZ)
             .freeze(vos, &device.SYSCFG);
 
-        // log_clocks(&ccdr);
-
-        let mut delay = Delay::new(core.SYST, ccdr.clocks);
-        // Setup ADCs
-        let (adc1, adc2) = adc::adc12(
-            device.ADC1,
-            device.ADC2,
-            &mut delay,
-            ccdr.peripheral.ADC12,
-            &ccdr.clocks,
-        );
-
-        // MPU
-        // Configure MPU per Seed
-        // https://github.com/electro-smith/libDaisy/blob/04479d151dc275203a02e64fbfa2ab2bf6c0a91a/src/sys_system.c
-        // core.MPU.
-        // let mpu = unsafe { cortex_mpu::Mpu::new(core.MPU) };
+        log_clocks(&ccdr);
 
         // Timers
         // TODO
@@ -163,6 +146,23 @@ impl System {
         //     .TIM3
         //     .timer(1.ms(), ccdr.peripheral.TIM3, &mut ccdr.clocks);
         // timer3.listen(Event::TimeOut);
+
+        let mut delay = DelayFromTimer::new(timer2);
+
+        // Setup ADCs
+        let (adc1, adc2) = adc::adc12(
+            device.ADC1,
+            device.ADC2,
+            &mut delay,
+            ccdr.peripheral.ADC12,
+            &ccdr.clocks,
+        );
+
+        // MPU
+        // Configure MPU per Seed
+        // https://github.com/electro-smith/libDaisy/blob/04479d151dc275203a02e64fbfa2ab2bf6c0a91a/src/sys_system.c
+        // core.MPU.
+        // let mpu = unsafe { cortex_mpu::Mpu::new(core.MPU) };
 
         // info!("Setting up GPIOs...");
         let gpioa = device.GPIOA.split(ccdr.peripheral.GPIOA);
@@ -344,8 +344,7 @@ impl System {
             adc1,
             adc2,
             spi1,
-            delay,
-            timer2,
+            timer2: delay.free(),
             sdram: ram,
         }
     }
